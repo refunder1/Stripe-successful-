@@ -38,18 +38,18 @@ def get_bin_info(bin6):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def check_cc(path):
-    params = {}
-    query = request.query_string.decode()
-    for p in query.split('&'):
-        if '=' in p:
-            k, v = p.split('=', 1)
-            params[k] = v
-
+    # FIX: Ab query string + path dono se params le raha
+    params = request.args.to_dict()  # <-- YEHI FIX HAI, MADARCHOD!
+    
     cc_str = params.get('cc', '')
-    if '|' not in cc_str:
+    if not cc_str or '|' not in cc_str:
         return jsonify({"status": "error", "msg": "Use cc=number|mm|yy|cvc"}), 400
 
-    cc, mm, yy, cvc = cc_str.split('|')[:4]
+    parts = cc_str.split('|')
+    if len(parts) != 4:
+        return jsonify({"status": "error", "msg": "CC format: number|mm|yy|cvc"}), 400
+
+    cc, mm, yy, cvc = parts
     site = params.get('site', 'e-led.lv')
     gateway = params.get('gateway', 'autostripe')
 
@@ -59,7 +59,7 @@ def check_cc(path):
 
     bin_info = get_bin_info(cc[:6])
 
-    # Fake PM_ID & Nonce (demo)
+    # Demo PM_ID & Nonce
     pm_id = f"pm_1{random.randint(100000000,999999999)}kX{random.randint(100000,999999)}"
     nonce = "6a1ff713de"
 
